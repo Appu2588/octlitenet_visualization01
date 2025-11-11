@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCTLiteNet Interactive Architecture Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chosen Palette: Calm Harmony -->
+    <!-- Application Structure Plan: The application uses a linear, horizontal-scrolling layout to mirror the sequential flow of the OCTLiteNet neural network. This structure was chosen for its intuitiveness, allowing users to naturally follow the data's path from input to output. The primary interaction is clicking on a network layer, which reveals detailed information in a dedicated panel. The new interactive image processor section enhances this by providing a tangible example of the data flow. This approach keeps the main diagram clean while providing depth on demand and a dynamic demonstration, making the architecture easy to understand at both a high level and a detailed level. -->
+    <!-- Visualization & Content Choices: The architecture is visualized using styled HTML and Tailwind CSS to create pseudo-3D blocks, avoiding SVG or Canvas for the core structure. Each block represents a key stage (e.g., Conv Block, Flatten, FC Layer). Goal: To inform and organize. Interaction: Clicking a block populates a "Details" pane with specific parameters. A new visualizer section uses a canvas to animate the processing of a selected image through each layer. This method balances visual simplicity with informational depth, making a complex structure accessible to a broad audience. NO SVG/Mermaid is used, adhering to the requirements. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .perspective-container {
+            perspective: 1000px;
+        }
+        .cuboid {
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.3s ease-in-out;
+        }
+        .cuboid:hover {
+            transform: scale(1.05);
+        }
+        .cuboid .face {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            padding: 0.5rem;
+            text-align: center;
+            backface-visibility: hidden;
+            border: 1px solid rgba(0,0,0,0.2);
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            color: white;
+        }
+        .cuboid .front {
+            transform: translateZ(10px);
+        }
+        .cuboid .top {
+            height: 20px;
+            transform: rotateX(90deg) translateZ(10px);
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+        .cuboid .side {
+            width: 20px;
+            transform: rotateY(90deg) translateZ(var(--side-pos, 50px));
+            background-color: rgba(0, 0, 0, 0.3);
+        }
+        .arrow {
+            position: relative;
+            width: 50px;
+            height: 4px;
+            background-color: #94a3b8;
+        }
+        .arrow::after {
+            content: '';
+            position: absolute;
+            right: -8px;
+            top: -6px;
+            border-top: 8px solid transparent;
+            border-bottom: 8px solid transparent;
+            border-left: 8px solid #94a3b8;
+        }
+        .details-panel-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .details-panel-item span:first-child {
+            font-weight: 500;
+            color: #4b5563;
+        }
+        .details-panel-item span:last-child {
+            font-family: monospace;
+            background-color: #f3f4f6;
+            padding: 0.1rem 0.4rem;
+            border-radius: 0.25rem;
+            color: #1f2937;
+        }
+        #processing-canvas-container {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        #processing-canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .processing-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #475569;
+            z-index: 10;
+            display: none;
+        }
+        .processing-result {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div id="app" class="min-h-screen flex flex-col">
+        <header class="bg-white shadow-sm sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
+                <h1 class="text-2xl font-bold text-slate-900">OCTLiteNet Architecture Explorer</h1>
+                <p class="text-sm text-slate-500 mt-1">An interactive visualization of the OCTLiteNet neural network. Click on any layer to see its detailed properties.</p>
+            </div>
+        </header>
+
+        <main class="flex-grow flex flex-col p-4 md:p-8">
+            <section class="flex-grow w-full max-w-7xl mx-auto">
+                <h2 class="text-lg font-semibold mb-4 text-slate-700">Network Diagram</h2>
+                <div class="bg-white p-6 rounded-lg shadow-md w-full overflow-x-auto">
+                    <div id="diagram-container" class="flex items-center space-x-4 p-8 min-w-max">
+                    </div>
+                </div>
+            </section>
+
+            <section class="w-full max-w-7xl mx-auto mt-8">
+                <h2 class="text-lg font-semibold mb-4 text-slate-700">Image Processor</h2>
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <p class="text-sm text-slate-500 mb-4">Select an OCT image to visualize its journey through the network.</p>
+                    <div class="flex flex-wrap gap-4 justify-center mb-6">
+                        <button class="image-select-btn p-2 rounded-md hover:bg-slate-200 transition" data-image="CNV">
+                            <img src="CNV-1016042-191.jpeg" alt="CNV Image" class="w-24 h-24 rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/224x224/A8A29E/334155?text=CNV';">
+                            <span class="block text-sm font-semibold mt-2">CNV</span>
+                        </button>
+                        <button class="image-select-btn p-2 rounded-md hover:bg-slate-200 transition" data-image="DME">
+                            <img src="DME-1605248-1.jpeg" alt="DME Image" class="w-24 h-24 rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/224x224/A8A29E/334155?text=DME';">
+                            <span class="block text-sm font-semibold mt-2">DME</span>
+                        </button>
+                        <button class="image-select-btn p-2 rounded-md hover:bg-slate-200 transition" data-image="DRUSEN">
+                            <img src="DRUSEN-1094282-1.jpeg" alt="DRUSEN Image" class="w-24 h-24 rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/224x224/A8A29E/334155?text=DRUSEN';">
+                            <span class="block text-sm font-semibold mt-2">DRUSEN</span>
+                        </button>
+                        <button class="image-select-btn p-2 rounded-md hover:bg-slate-200 transition" data-image="NORMAL">
+                            <img src="NORMAL-1016042-40.jpeg" alt="NORMAL Image" class="w-24 h-24 rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/224x224/A8A29E/334155?text=NORMAL';">
+                            <span class="block text-sm font-semibold mt-2">NORMAL</span>
+                        </button>
+                    </div>
+                    <div id="processing-canvas-container" class="h-96 w-full relative">
+                        <canvas id="processing-canvas"></canvas>
+                        <div id="processing-text" class="processing-text"></div>
+                        <div id="processing-result" class="processing-result"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="details-section" class="w-full max-w-7xl mx-auto mt-8">
+                <h2 class="text-lg font-semibold mb-4 text-slate-700">Layer Details</h2>
+                <div class="bg-white p-6 rounded-lg shadow-md min-h-[200px]">
+                    <div id="details-panel" class="text-slate-600">
+                        <p class="italic text-center py-10">Click on a layer in the diagram to view its details here.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="bg-white mt-8">
+             <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 text-center text-sm text-slate-500">
+                <p>Designed to provide an intuitive and interactive exploration of the OCTLiteNet model architecture.</p>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        const architectureData = [
+            {
+                id: 'input',
+                name: 'Input',
+                type: 'Data',
+                dims: '3 x 224 x 224',
+                color: 'bg-gray-500',
+                width: 'w-24',
+                details: {
+                    'Description': 'Input layer for retinal OCT scans. The model accepts images with 3 channels (e.g., RGB) and a resolution of 224x224 pixels. These images contain cross-sectional views of the retina.',
+                    'Channels': '3 (RGB)',
+                    'Height': '224px',
+                    'Width': '224px'
+                }
+            },
+            {
+                id: 'conv1',
+                name: 'Conv Block 1',
+                type: 'Feature Extraction',
+                dims: '16 x 112 x 112',
+                color: 'bg-blue-600',
+                width: 'w-32',
+                details: {
+                    'Description': 'This block processes the raw OCT image to detect initial, low-level features. The convolutions identify basic patterns such as edges and textures, which are the fundamental building blocks for recognizing anatomical structures in the retina.',
+                    'Conv2d': '3 -> 16 channels, Kernel: 3x3, Stride: 1, Pad: 1',
+                    'BatchNorm2d': 'Applied to 16 channels',
+                    'Activation': 'ReLU',
+                    'Pooling': 'MaxPool2d, 2x2 Kernel',
+                    'Output Shape': '16 x 112 x 112'
+                }
+            },
+            {
+                id: 'conv2',
+                name: 'Conv Block 2',
+                type: 'Feature Extraction',
+                dims: '32 x 56 x 56',
+                color: 'bg-blue-600',
+                width: 'w-32',
+                details: {
+                    'Description': 'This block continues to build on the features from the previous layer. It identifies more complex patterns, like the boundaries of retinal layers or the presence of subtle fluid pockets and drusen. The pooling step reduces the image size while preserving the most important features.',
+                    'Conv2d': '16 -> 32 channels, Kernel: 3x3, Stride: 1, Pad: 1',
+                    'BatchNorm2d': 'Applied to 32 channels',
+                    'Activation': 'ReLU',
+                    'Pooling': 'MaxPool2d, 2x2 Kernel',
+                    'Output Shape': '32 x 56 x 56'
+                }
+            },
+            {
+                id: 'conv3',
+                name: 'Conv Block 3',
+                type: 'Feature Extraction',
+                dims: '64 x 28 x 28',
+                color: 'bg-blue-600',
+                width: 'w-32',
+                details: {
+                    'Description': 'At this stage, the network learns to recognize more abstract and specific features related to retinal diseases. The filters might be tuned to recognize the characteristic shapes of neovascular membranes (CNV), cysts (DME), or irregular deposits (DRUSEN).',
+                    'Conv2d': '32 -> 64 channels, Kernel: 3x3, Stride: 1, Pad: 1',
+                    'BatchNorm2d': 'Applied to 64 channels',
+                    'Activation': 'ReLU',
+                    'Pooling': 'MaxPool2d, 2x2 Kernel',
+                    'Output Shape': '64 x 28 x 28'
+                }
+            },
+            {
+                id: 'conv4',
+                name: 'Conv Block 4',
+                type: 'Feature Extraction',
+                dims: '128 x 14 x 14',
+                color: 'bg-blue-600',
+                width: 'w-32',
+                details: {
+                    'Description': 'This final convolutional block creates a high-level representation of the input OCT scan. It consolidates all previously extracted features into a compact, rich representation that is highly discriminative for each disease class. This layer is crucial for separating a healthy retina from a diseased one.',
+                    'Conv2d': '64 -> 128 channels, Kernel: 3x3, Stride: 1, Pad: 1',
+                    'BatchNorm2d': 'Applied to 128 channels',
+                    'Activation': 'ReLU',
+                    'Pooling': 'MaxPool2d, 2x2 Kernel',
+                    'Output Shape': '128 x 14 x 14'
+                }
+            },
+            {
+                id: 'flatten',
+                name: 'Flatten',
+                type: 'Reshaping',
+                dims: '25088',
+                color: 'bg-amber-500',
+                width: 'w-28',
+                details: {
+                    'Description': 'This layer transforms the 3D output of the convolutional layers into a single 1D vector. This is a necessary step to connect the feature extraction part of the network to the final classification layers, which require a linear input.',
+                    'Input Shape': '128 x 14 x 14',
+                    'Output Shape': '1 x 25088'
+                }
+            },
+            {
+                id: 'fc1',
+                name: 'Classifier',
+                type: 'Fully Connected',
+                dims: '256',
+                color: 'bg-emerald-600',
+                width: 'w-32',
+                details: {
+                    'Description': 'The first fully connected layer processes the flattened features. It acts as a decision-making component, combining the high-level features learned by the convolutional layers to determine the probability of each disease. The dropout layers help prevent overfitting to the training data.',
+                    'Dropout': 'Rate: 0.5',
+                    'Linear': '25088 -> 256 features',
+                    'Activation': 'ReLU',
+                    'Dropout_2': 'Rate: 0.5'
+                }
+            },
+            {
+                id: 'output',
+                name: 'Output',
+                type: 'Classification',
+                dims: '4',
+                color: 'bg-rose-600',
+                width: 'w-28',
+                details: {
+                    'Description': 'The final output layer produces the classification result. It takes the processed features and outputs a prediction for each of the four possible classes: Choroidal Neovascularization (CNV), Diabetic Macular Edema (DME), Drusen, and Normal. The class with the highest score is the final diagnosis.',
+                    'Linear': '256 -> 4 features (classes)',
+                    'Classes': 'CNV, DME, DRUSEN, NORMAL',
+                    'Output Logits': 'Final output scores for each class.'
+                }
+            },
+        ];
+
+        const imageFiles = {
+            'CNV': 'CNV-1016042-191.jpeg',
+            'DME': 'DME-1605248-1.jpeg',
+            'DRUSEN': 'DRUSEN-1094282-1.jpeg',
+            'NORMAL': 'NORMAL-1016042-40.jpeg'
+        };
+
+        const canvas = document.getElementById('processing-canvas');
+        const ctx = canvas.getContext('2d');
+        const processingText = document.getElementById('processing-text');
+        const processingResult = document.getElementById('processing-result');
+        let selectedImage = null;
+
+        const originalWidth = 224;
+        const originalHeight = 224;
+        
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            processingText.style.display = 'none';
+            processingResult.textContent = '';
+        }
+
+        function drawImage(image, x, y, width, height) {
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(image, x, y, width, height);
+        }
+
+        function drawLayerImage(layerName, originalImg, scale) {
+            clearCanvas();
+            processingText.textContent = `Processing at ${layerName}...`;
+            processingText.style.display = 'block';
+            processingText.style.color = '#ffffff';
+
+            const newSize = originalWidth / scale;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = newSize;
+            tempCanvas.height = newSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(originalImg, 0, 0, newSize, newSize);
+
+            ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+        }
+
+        function drawFlattening(originalImg) {
+            clearCanvas();
+            processingText.textContent = 'Flattening features...';
+            processingText.style.display = 'block';
+            processingText.style.color = '#1f2937';
+
+            const smallSize = originalWidth / 16;
+            const totalPixels = smallSize * smallSize;
+            const pixelWidth = canvas.width / totalPixels;
+            
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = smallSize;
+            tempCanvas.height = smallSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(originalImg, 0, 0, smallSize, smallSize);
+            const imageData = tempCtx.getImageData(0, 0, smallSize, smallSize).data;
+
+            let x = 0;
+            for(let i = 0; i < imageData.length; i += 4) {
+                const brightness = (imageData[i] + imageData[i+1] + imageData[i+2]) / 3;
+                const color = `rgb(${brightness}, ${brightness}, ${brightness})`;
+                ctx.fillStyle = color;
+                ctx.fillRect(x, canvas.height/2 - 2, pixelWidth, 4);
+                x += pixelWidth;
+            }
+        }
+
+        function drawClassifier(imageKey) {
+            clearCanvas();
+            processingText.textContent = `Classifying...`;
+            processingText.style.display = 'block';
+            processingText.style.color = '#1f2937';
+            
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height / 2, 50, 0, 2 * Math.PI);
+            ctx.fillStyle = '#059669';
+            ctx.fill();
+            ctx.closePath();
+            
+            ctx.font = '20px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.fillText(imageKey, canvas.width / 2, canvas.height / 2 + 5);
+        }
+
+        function drawOutput(result, originalImg) {
+            clearCanvas();
+            processingText.style.display = 'none';
+            processingResult.textContent = `Detected Class: ${result}`;
+            processingResult.style.color = '#ffffff';
+            
+            drawImage(originalImg, (canvas.width - originalWidth) / 2, (canvas.height - originalHeight) / 2, originalWidth, originalHeight);
+        }
+
+        const diagramContainer = document.getElementById('diagram-container');
+        const detailsPanel = document.getElementById('details-panel');
+        let activeLayer = null;
+
+        function renderDiagram() {
+            architectureData.forEach((layer, index) => {
+                const cuboidWidth = parseInt(layer.width.replace('w-', '')) * 4;
+                const cuboid = `
+                    <div id="${layer.id}" class="perspective-container cursor-pointer group">
+                        <div class="cuboid ${layer.width} h-24" style="--side-pos: ${cuboidWidth / 2}px;">
+                            <div class="face front ${layer.color} ${layer.width} h-24 rounded-md">
+                                <span class="font-bold">${layer.name}</span>
+                                <span class="text-xs mt-1 font-mono">${layer.dims}</span>
+                            </div>
+                            <div class="face top ${layer.width} rounded-t-md"></div>
+                            <div class="face side h-24 rounded-r-md"></div>
+                        </div>
+                    </div>
+                `;
+                diagramContainer.innerHTML += cuboid;
+
+                if (index < architectureData.length - 1) {
+                    diagramContainer.innerHTML += `<div class="arrow mx-4"></div>`;
+                }
+            });
+        }
+
+        function updateDetailsPanel(layerData) {
+            let detailsHTML = `<h3 class="text-xl font-bold text-slate-800 mb-2">${layerData.name}</h3>`;
+            detailsHTML += `<p class="text-sm text-slate-500 mb-4">${layerData.details.Description}</p>`;
+            detailsHTML += '<div class="space-y-2">';
+            for (const [key, value] of Object.entries(layerData.details)) {
+                if (key !== 'Description') {
+                    detailsHTML += `
+                        <div class="details-panel-item">
+                            <span>${key}</span>
+                            <span>${value}</span>
+                        </div>
+                    `;
+                }
+            }
+            detailsHTML += '</div>';
+            detailsPanel.innerHTML = detailsHTML;
+        }
+
+        function handleLayerClick(e) {
+            const layerElement = e.target.closest('.perspective-container');
+            if (!layerElement) return;
+            const layerId = layerElement.id;
+            const layerData = architectureData.find(l => l.id === layerId);
+            
+            if (!selectedImage) {
+                alert('Please select an OCT image first by clicking on one of the buttons above.');
+                return;
+            }
+
+            const img = new Image();
+            img.src = selectedImage.src;
+            img.onload = () => {
+                if (layerId === 'input') {
+                    drawOutput('Input Layer', img);
+                } else if (layerId === 'conv1') {
+                    drawLayerImage('Conv Block 1', img, 2);
+                } else if (layerId === 'conv2') {
+                    drawLayerImage('Conv Block 2', img, 4);
+                } else if (layerId === 'conv3') {
+                    drawLayerImage('Conv Block 3', img, 8);
+                } else if (layerId === 'conv4') {
+                    drawLayerImage('Conv Block 4', img, 16);
+                } else if (layerId === 'flatten') {
+                    drawFlattening(img);
+                } else if (layerId === 'fc1') {
+                    drawClassifier(selectedImage.key);
+                } else if (layerId === 'output') {
+                    drawOutput(selectedImage.key, img);
+                }
+            };
+            
+            if (layerData) {
+                if(activeLayer) {
+                    activeLayer.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500');
+                }
+                layerElement.classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+                activeLayer = layerElement;
+                updateDetailsPanel(layerData);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            renderDiagram();
+            diagramContainer.addEventListener('click', handleLayerClick);
+            const imageButtons = document.querySelectorAll('.image-select-btn');
+            imageButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const imageKey = button.getAttribute('data-image');
+                    const imgElement = button.querySelector('img');
+                    
+                    selectedImage = {
+                        key: imageKey,
+                        src: imgElement.src
+                    };
+                    
+                    const activeImageBtn = document.querySelector('.image-select-btn.ring-2');
+                    if (activeImageBtn) {
+                        activeImageBtn.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500');
+                    }
+                    button.classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+                    clearCanvas();
+                    
+                    const img = new Image();
+                    img.src = selectedImage.src;
+                    img.onload = () => {
+                        drawOutput('Image Selected', img);
+                    };
+                });
+            });
+        });
+
+    </script>
+</body>
+</html>
